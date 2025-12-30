@@ -45,7 +45,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["aiosqlite.*", "datasets.*", "sse_starlette.*"]
+module = ["aiosqlite", "aiosqlite.*", "datasets", "datasets.*", "sse_starlette", "sse_starlette.*", "pyarrow", "pyarrow.*", "pandas", "pandas.*", "huggingface_hub", "huggingface_hub.*"]
 ignore_missing_imports = true
 
 # Pytest
