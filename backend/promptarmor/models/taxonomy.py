@@ -1,13 +1,8 @@
 """Models for the taxonomy browser API responses."""
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
 from pydantic import BaseModel, Field
 
-if TYPE_CHECKING:
-    from promptarmor.models.attacks import AttackPromptDetail
+from promptarmor.models.attacks import AttackPromptDetail
 
 
 class TechniqueInfo(BaseModel):
