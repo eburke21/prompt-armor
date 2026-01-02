@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from promptarmor.config import settings
 from promptarmor.database import get_db, init_db
+from promptarmor.routers import attacks, system_prompts, taxonomy
 
 logging.basicConfig(level=settings.log_level.upper())
 logger = logging.getLogger(__name__)
@@ -34,6 +35,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+app.include_router(taxonomy.router)
+app.include_router(attacks.router)
+app.include_router(system_prompts.router)
 
 
 @app.get("/api/v1/health")
