@@ -3,7 +3,6 @@
 from promptarmor.ingestion.base import make_id
 from promptarmor.ingestion.deepset import _detect_language
 
-
 # --- make_id: deterministic UUID from text + source ---
 
 

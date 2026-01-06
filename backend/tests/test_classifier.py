@@ -1,6 +1,5 @@
 """Tests for heuristic technique classifier and difficulty estimator."""
 
-import pytest
 
 from promptarmor.ingestion.classifier import (
     classify_all,
@@ -8,7 +7,6 @@ from promptarmor.ingestion.classifier import (
     estimate_difficulty,
 )
 from promptarmor.models.attacks import AttackPrompt, PromptTechnique
-
 
 # --- classify_techniques: one test per technique pattern ---
 
