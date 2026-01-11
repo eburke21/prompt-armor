@@ -104,3 +104,23 @@ class EvalRun(BaseModel):
     total_prompts: int
     completed_prompts: int = 0
     summary_stats: Scorecard | None = None
+    comparison_id: str | None = None
+
+
+# --- Comparison models ---
+
+
+class ComparisonCreate(BaseModel):
+    """Request body for starting a comparison eval (2-3 defense configs)."""
+
+    defense_configs: list[DefenseConfig] = Field(min_length=2, max_length=3)
+    attack_set: AttackSetConfig
+
+
+class ComparisonResponse(BaseModel):
+    """Response when creating a comparison."""
+
+    comparison_id: str
+    eval_run_ids: list[str]
+    total_prompts: int
+    stream_url: str

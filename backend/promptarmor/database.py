@@ -82,12 +82,25 @@ CREATE INDEX IF NOT EXISTS idx_results_run ON eval_results(eval_run_id);
 CREATE INDEX IF NOT EXISTS idx_results_prompt ON eval_results(prompt_id);
 """
 
+# Lightweight migrations — ALTER TABLE for columns added after initial schema.
+# Each migration is idempotent (safe to re-run on every startup).
+_MIGRATIONS = [
+    "ALTER TABLE eval_runs ADD COLUMN comparison_id TEXT",
+]
+
 
 async def init_db() -> None:
-    """Create the database file and all tables/indexes."""
+    """Create the database file and all tables/indexes, then apply migrations."""
     settings.db_path.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(settings.database_path) as db:
         await db.executescript(SCHEMA_SQL)
+        # Apply idempotent migrations (ignore "duplicate column" errors)
+        for migration in _MIGRATIONS:
+            try:
+                await db.execute(migration)
+            except Exception as exc:
+                if "duplicate column" not in str(exc).lower():
+                    raise
         await db.commit()
     logger.info("Database initialized at %s", settings.database_path)
 
