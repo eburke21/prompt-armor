@@ -13,6 +13,7 @@ dependencies = [
     "httpx>=0.27.0",
     "datasets>=3.0",
     "python-dotenv>=1.0",
+    "anthropic>=0.40.0",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +36,9 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
+[tool.ruff.lint.per-file-ignores]
+"promptarmor/routers/report.py" = ["E501"]  # Prompt template strings are naturally long
+
 [tool.ruff.lint.isort]
 known-first-party = ["promptarmor"]
 
@@ -45,7 +49,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["aiosqlite", "aiosqlite.*", "datasets", "datasets.*", "sse_starlette", "sse_starlette.*", "pyarrow", "pyarrow.*", "pandas", "pandas.*", "huggingface_hub", "huggingface_hub.*"]
+module = ["aiosqlite", "aiosqlite.*", "datasets", "datasets.*", "sse_starlette", "sse_starlette.*", "pyarrow", "pyarrow.*", "pandas", "pandas.*", "huggingface_hub", "huggingface_hub.*", "anthropic", "anthropic.*"]
 ignore_missing_imports = true
 
 # Pytest
