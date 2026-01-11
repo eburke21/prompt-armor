@@ -8,10 +8,14 @@
 import type {
   AttackListResponse,
   AttackPromptDetail,
+  ComparisonCreate,
+  ComparisonResponse,
+  ComparisonStatus,
   EvalRun,
   EvalRunCreate,
   EvalRunResponse,
   PaginatedResults,
+  ReportGenerateResponse,
   SystemPrompt,
   TaxonomyResponse,
 } from "./types";
@@ -149,4 +153,36 @@ export async function getEvalResults(
   return apiFetch<PaginatedResults>(
     `/eval/run/${runId}/results${query ? `?${query}` : ""}`
   );
+}
+
+// ---------------------------------------------------------------------------
+// Comparisons
+// ---------------------------------------------------------------------------
+
+export async function startComparison(
+  config: ComparisonCreate
+): Promise<ComparisonResponse> {
+  return apiFetch<ComparisonResponse>("/eval/compare", {
+    method: "POST",
+    body: JSON.stringify(config),
+  });
+}
+
+export async function getComparison(
+  comparisonId: string
+): Promise<ComparisonStatus> {
+  return apiFetch<ComparisonStatus>(`/eval/compare/${comparisonId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Reports
+// ---------------------------------------------------------------------------
+
+export async function generateReport(
+  evalRunIds: string[]
+): Promise<ReportGenerateResponse> {
+  return apiFetch<ReportGenerateResponse>("/report/generate", {
+    method: "POST",
+    body: JSON.stringify({ eval_run_ids: evalRunIds }),
+  });
 }

@@ -227,3 +227,67 @@ export interface ErrorEvent {
   message: string;
   prompt_id?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Comparison types
+// ---------------------------------------------------------------------------
+
+export interface ComparisonCreate {
+  defense_configs: DefenseConfig[];
+  attack_set: AttackSetConfig;
+}
+
+export interface ComparisonResponse {
+  comparison_id: string;
+  eval_run_ids: string[];
+  total_prompts: number;
+  stream_url: string;
+}
+
+export interface ComparisonRun {
+  config_index: number;
+  id: string;
+  status: string;
+  defense_config: DefenseConfig;
+  total_prompts: number;
+  completed_prompts: number;
+  summary_stats?: Scorecard;
+}
+
+export interface ComparisonStatus {
+  comparison_id: string;
+  status: string;
+  runs: ComparisonRun[];
+}
+
+/** SSE result event extended with config_index for comparisons */
+export interface ComparisonResultEvent extends ResultEvent {
+  config_index: number;
+}
+
+/** Emitted when one config in a comparison finishes */
+export interface ConfigCompleteEvent {
+  config_index: number;
+  eval_run_id: string;
+  scorecard: Scorecard;
+}
+
+/** Emitted when all configs in a comparison have finished */
+export interface AllCompleteEvent {
+  comparison_id: string;
+  scorecards: Scorecard[];
+}
+
+// ---------------------------------------------------------------------------
+// Report types
+// ---------------------------------------------------------------------------
+
+export interface ReportGenerateRequest {
+  eval_run_ids: string[];
+}
+
+export interface ReportGenerateResponse {
+  markdown: string;
+  eval_run_ids: string[];
+  model_used: string;
+}

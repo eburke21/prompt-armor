@@ -5,7 +5,10 @@
  */
 
 import type {
+  AllCompleteEvent,
+  ComparisonResultEvent,
   CompleteEvent,
+  ConfigCompleteEvent,
   ErrorEvent,
   ProgressEvent,
   ResultEvent,
@@ -75,6 +78,82 @@ export function subscribeToEvalStream(
   });
 
   // Handle connection error (source.onerror fires on disconnect)
+  source.onerror = () => {
+    if (source.readyState === EventSource.CLOSED) {
+      callbacks.onDisconnect?.();
+    }
+  };
+
+  return () => {
+    source.close();
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Comparison stream subscriber
+// ---------------------------------------------------------------------------
+
+export interface ComparisonStreamCallbacks {
+  onResult?: (data: ComparisonResultEvent) => void;
+  onConfigComplete?: (data: ConfigCompleteEvent) => void;
+  onAllComplete?: (data: AllCompleteEvent) => void;
+  onError?: (data: ErrorEvent) => void;
+  onDisconnect?: () => void;
+}
+
+/**
+ * Subscribe to the SSE stream for a comparison eval.
+ *
+ * Returns a cleanup function that closes the EventSource connection.
+ */
+export function subscribeToComparisonStream(
+  comparisonId: string,
+  callbacks: ComparisonStreamCallbacks
+): () => void {
+  const url = `/api/v1/eval/compare/${comparisonId}/stream`;
+  const source = new EventSource(url);
+
+  source.addEventListener("result", (e: MessageEvent) => {
+    try {
+      const data = JSON.parse(e.data) as ComparisonResultEvent;
+      callbacks.onResult?.(data);
+    } catch {
+      console.error("Failed to parse comparison result event", e.data);
+    }
+  });
+
+  source.addEventListener("config_complete", (e: MessageEvent) => {
+    try {
+      const data = JSON.parse(e.data) as ConfigCompleteEvent;
+      callbacks.onConfigComplete?.(data);
+    } catch {
+      console.error("Failed to parse config_complete event", e.data);
+    }
+  });
+
+  source.addEventListener("all_complete", (e: MessageEvent) => {
+    try {
+      const data = JSON.parse(e.data) as AllCompleteEvent;
+      callbacks.onAllComplete?.(data);
+      source.close();
+    } catch {
+      console.error("Failed to parse all_complete event", e.data);
+    }
+  });
+
+  source.addEventListener("error", (e: MessageEvent) => {
+    if (e.data) {
+      try {
+        const data = JSON.parse(e.data) as ErrorEvent;
+        callbacks.onError?.(data);
+      } catch {
+        callbacks.onError?.({ message: e.data });
+      }
+    } else {
+      callbacks.onDisconnect?.();
+    }
+  });
+
   source.onerror = () => {
     if (source.readyState === EventSource.CLOSED) {
       callbacks.onDisconnect?.();
