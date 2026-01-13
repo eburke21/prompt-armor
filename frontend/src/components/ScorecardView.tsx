@@ -12,12 +12,14 @@
 import {
   Badge,
   Box,
+  Button,
   Card,
   Flex,
   Heading,
   SimpleGrid,
   Text,
 } from "@chakra-ui/react";
+import { useNavigate } from "react-router-dom";
 import {
   Bar,
   BarChart,
@@ -172,12 +174,25 @@ const LAYER_COLORS: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 export function ScorecardView({ scorecard }: ScorecardViewProps) {
+  const navigate = useNavigate();
   const techniqueData = buildTechniqueData(scorecard);
   const layerData = buildLayerData(scorecard);
   const difficultyData = buildDifficultyData(scorecard);
 
   return (
     <Box>
+      {/* Generate Report button */}
+      <Flex justify="flex-end" mb={4}>
+        <Button
+          size="sm"
+          colorPalette="blue"
+          variant="outline"
+          onClick={() => navigate(`/report/${scorecard.eval_run_id}`)}
+        >
+          Generate Report
+        </Button>
+      </Flex>
+
       {/* Hero metrics */}
       <SimpleGrid columns={{ base: 1, md: 3 }} gap={6} mb={6}>
         {/* Attack block rate ring */}
