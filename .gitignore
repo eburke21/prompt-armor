@@ -36,3 +36,5 @@ htmlcov/
 .ruff_cache/
 
 dev-docs/
+
+.serena/
