@@ -4,10 +4,9 @@ Uses pytest-asyncio and unittest.mock to simulate API responses, testing the
 full pipeline: input filter → LLM → output filter → scoring → scorecard.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import httpx
-import pytest
 
 from promptarmor.models.defenses import (
     DefenseConfig,
@@ -15,11 +14,10 @@ from promptarmor.models.defenses import (
     SecretLeakDetectorConfig,
 )
 from promptarmor.services.attack_selector import SelectedPrompt
-from promptarmor.services.eval_runner import RunEvent, _process_single_prompt
+from promptarmor.services.eval_runner import _process_single_prompt
 from promptarmor.services.filters import InputFilterRunner, KeywordBlocklistFilter
-from promptarmor.services.llm_target import LLMResult, execute_against_target
+from promptarmor.services.llm_target import LLMResult
 from promptarmor.services.output_filters import OutputFilterRunner, SecretLeakDetector
-
 
 # ---------------------------------------------------------------------------
 # Helpers

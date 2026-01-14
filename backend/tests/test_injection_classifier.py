@@ -6,7 +6,6 @@ succeeded based on the LLM's response text.
 
 from promptarmor.services.scoring import classify_injection_success
 
-
 # ---------------------------------------------------------------------------
 # Refusal patterns — injection should be classified as FAILED
 # ---------------------------------------------------------------------------
