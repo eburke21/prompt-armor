@@ -3,7 +3,7 @@ import { getTaxonomy, getAttacks, startEvalRun } from "../api/client";
 
 // Mock global fetch
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
+globalThis.fetch = mockFetch as unknown as typeof fetch;
 
 beforeEach(() => {
   mockFetch.mockReset();

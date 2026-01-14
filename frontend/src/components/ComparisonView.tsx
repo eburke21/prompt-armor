@@ -245,7 +245,7 @@ function GroupedTechniqueChart({
                 tick={{ fill: "currentColor" }}
               />
               <Tooltip
-                formatter={(value: number) => [`${value}%`, "Block Rate"]}
+                formatter={(value) => [`${value}%`, "Block Rate"]}
                 contentStyle={{
                   background: "#1a1a2e",
                   border: "1px solid #333",
@@ -331,7 +331,7 @@ function LayerComparison({
               <XAxis dataKey="name" fontSize={12} />
               <YAxis fontSize={12} />
               <Tooltip
-                formatter={(value: number) => [value, "Blocked"]}
+                formatter={(value) => [value, "Blocked"]}
                 contentStyle={{
                   background: "#1a1a2e",
                   border: "1px solid #333",

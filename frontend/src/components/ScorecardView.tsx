@@ -307,10 +307,10 @@ export function ScorecardView({ scorecard }: ScorecardViewProps) {
                     tick={{ fill: "currentColor" }}
                   />
                   <Tooltip
-                    formatter={(value: number, _name: string, props: { payload: { blocked: number; total: number } }) => [
-                      `${value}% (${props.payload.blocked}/${props.payload.total})`,
-                      "Block Rate",
-                    ]}
+                    formatter={(value, _name, props) => {
+                      const p = props.payload as { blocked: number; total: number };
+                      return [`${value}% (${p.blocked}/${p.total})`, "Block Rate"];
+                    }}
                     contentStyle={{
                       background: "#1a1a2e",
                       border: "1px solid #333",
@@ -358,7 +358,7 @@ export function ScorecardView({ scorecard }: ScorecardViewProps) {
                   <XAxis dataKey="name" fontSize={12} />
                   <YAxis fontSize={12} />
                   <Tooltip
-                    formatter={(value: number) => [value, "Blocked"]}
+                    formatter={(value) => [value, "Blocked"]}
                     contentStyle={{
                       background: "#1a1a2e",
                       border: "1px solid #333",
@@ -422,10 +422,10 @@ export function ScorecardView({ scorecard }: ScorecardViewProps) {
                   fontSize={12}
                 />
                 <Tooltip
-                  formatter={(value: number, _name: string, props: { payload: { blocked: number; total: number } }) => [
-                    `${value}% (${props.payload.blocked}/${props.payload.total})`,
-                    "Block Rate",
-                  ]}
+                  formatter={(value, _name, props) => {
+                    const p = props.payload as { blocked: number; total: number };
+                    return [`${value}% (${p.blocked}/${p.total})`, "Block Rate"];
+                  }}
                   contentStyle={{
                     background: "#1a1a2e",
                     border: "1px solid #333",
