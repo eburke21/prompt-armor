@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "prompt-armor-production.up.railway.app"
+    }
+  ]
+}
