@@ -42,10 +42,9 @@ class SecretLeakDetectorConfig(BaseModel):
     patterns: list[str] = Field(default_factory=list)
 
 
-OutputFilter = Annotated[
-    SecretLeakDetectorConfig | SecretLeakDetectorConfig,
-    Field(discriminator="type"),
-]
+# Only one output filter variant exists today; restore an Annotated discriminated
+# union (see InputFilter above) when a second variant is added.
+type OutputFilter = SecretLeakDetectorConfig
 
 
 # --- Composite Defense Config ---

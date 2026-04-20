@@ -6,11 +6,13 @@ Yields SSE-compatible events as each prompt is processed.
 
 import json
 import logging
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
+from promptarmor.config import settings
 from promptarmor.database import get_db
 from promptarmor.models.defenses import DefenseConfig
 from promptarmor.models.evals import EvalResult
@@ -110,6 +112,9 @@ async def run_evaluation(
     """
     total = len(prompts)
     results: list[EvalResult] = []
+    failed_count = 0
+    consecutive_failures = 0
+    aborted_reason: str | None = None
 
     input_runner = _build_input_filter_runner(defense_config)
     output_runner = _build_output_filter_runner(defense_config)
@@ -118,7 +123,23 @@ async def run_evaluation(
     technique_map: dict[str, list[str]] = {p.id: p.techniques for p in prompts}
     difficulty_map: dict[str, int] = {p.id: p.difficulty_estimate for p in prompts}
 
+    run_deadline = time.monotonic() + settings.run_deadline_seconds
+    failure_threshold = settings.max_consecutive_prompt_failures
+
     for idx, prompt in enumerate(prompts):
+        # --- Deadline check: long Anthropic outage or stalled prompt ---
+        if time.monotonic() > run_deadline:
+            aborted_reason = (
+                f"Run exceeded {settings.run_deadline_seconds}s deadline — "
+                f"aborted after {idx}/{total} prompts."
+            )
+            logger.warning(aborted_reason)
+            yield RunEvent(
+                event="error",
+                data={"message": aborted_reason, "aborted": True},
+            )
+            break
+
         try:
             result = await _process_single_prompt(
                 run_id=run_id,
@@ -128,6 +149,7 @@ async def run_evaluation(
                 output_runner=output_runner,
             )
             results.append(result)
+            consecutive_failures = 0
 
             # Persist the result to the database
             await _store_result(result)
@@ -168,6 +190,8 @@ async def run_evaluation(
 
         except Exception as exc:
             logger.exception("Error processing prompt %s: %s", prompt.id, exc)
+            failed_count += 1
+            consecutive_failures += 1
             yield RunEvent(
                 event="error",
                 data={
@@ -175,6 +199,18 @@ async def run_evaluation(
                     "prompt_id": prompt.id,
                 },
             )
+            # --- Circuit breaker: too many back-to-back failures ---
+            if consecutive_failures >= failure_threshold:
+                aborted_reason = (
+                    f"Aborted after {consecutive_failures} consecutive "
+                    f"per-prompt failures — check Anthropic API health."
+                )
+                logger.error(aborted_reason)
+                yield RunEvent(
+                    event="error",
+                    data={"message": aborted_reason, "aborted": True},
+                )
+                break
 
     # --- Compute and store scorecard ---
     scorecard = compute_scorecard_with_difficulty(
@@ -183,14 +219,18 @@ async def run_evaluation(
         technique_map=technique_map,
         difficulty_map=difficulty_map,
     )
+    scorecard.failed_attacks = failed_count
 
-    await _store_scorecard(run_id, scorecard)
+    await _store_scorecard(run_id, scorecard, aborted=aborted_reason is not None)
 
     yield RunEvent(
         event="complete",
         data={
             "eval_run_id": run_id,
             "scorecard": scorecard.model_dump(),
+            "failed_count": failed_count,
+            "aborted": aborted_reason is not None,
+            "aborted_reason": aborted_reason,
         },
     )
 
@@ -332,11 +372,18 @@ async def _update_run_progress(run_id: str, completed: int) -> None:
         await db.commit()
 
 
-async def _store_scorecard(run_id: str, scorecard: Any) -> None:
-    """Store the final scorecard and mark the run as completed."""
+async def _store_scorecard(
+    run_id: str, scorecard: Any, *, aborted: bool = False
+) -> None:
+    """Store the final scorecard and mark the run's terminal status.
+
+    A run that hits the deadline or circuit breaker is marked 'partial' so
+    the UI can distinguish "all prompts processed" from "we gave up early."
+    """
+    status = "partial" if aborted else "completed"
     async with get_db() as db:
         await db.execute(
-            "UPDATE eval_runs SET status = 'completed', summary_stats = ? WHERE id = ?",
-            (json.dumps(scorecard.model_dump()), run_id),
+            "UPDATE eval_runs SET status = ?, summary_stats = ? WHERE id = ?",
+            (status, json.dumps(scorecard.model_dump()), run_id),
         )
         await db.commit()

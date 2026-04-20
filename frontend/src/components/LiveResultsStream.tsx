@@ -33,7 +33,16 @@ import { TECHNIQUE_INFO } from "../theme/constants";
 interface LiveResultsStreamProps {
   runId: string;
   onComplete: (scorecard: Scorecard) => void;
+  /** Called once when the first SSE event arrives, so the parent can stop
+   *  any redundant polling (I9). */
+  onActive?: () => void;
 }
+
+/** Internal representation distinguishing a real backend error (has message
+ *  from the server) from a transient network disconnect (no server data). */
+type StreamError =
+  | { kind: "backend"; message: string }
+  | { kind: "disconnect" };
 
 /** Classify a result row for color coding */
 function rowColor(result: ResultEvent): string {
@@ -96,12 +105,14 @@ function resultBadge(result: ResultEvent) {
 export function LiveResultsStream({
   runId,
   onComplete,
+  onActive,
 }: LiveResultsStreamProps) {
   const [results, setResults] = useState<ResultEvent[]>([]);
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [streamError, setStreamError] = useState<StreamError | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const tableEndRef = useRef<HTMLDivElement>(null);
+  const activeFiredRef = useRef(false);
 
   // Auto-scroll effect
   useEffect(() => {
@@ -112,27 +123,40 @@ export function LiveResultsStream({
 
   // SSE subscription
   useEffect(() => {
+    const markActive = () => {
+      if (!activeFiredRef.current) {
+        activeFiredRef.current = true;
+        onActive?.();
+      }
+    };
+
     const cleanup = subscribeToEvalStream(runId, {
       onProgress: (data: ProgressEvent) => {
+        markActive();
         setProgress(data);
       },
       onResult: (data: ResultEvent) => {
+        markActive();
         setResults((prev) => [...prev, data]);
       },
       onComplete: (data: CompleteEvent) => {
+        markActive();
         onComplete(data.scorecard);
       },
       onError: (data: ErrorEvent) => {
-        setError(data.message);
+        markActive();
+        // Backend-emitted error with a message — surface it prominently (I7).
+        setStreamError({ kind: "backend", message: data.message });
       },
       onDisconnect: () => {
-        // Only show disconnect error if we haven't received completion
-        setError((prev) => prev ?? "Connection lost. Results may be incomplete.");
+        // Network-level disconnect — only fall back to this message if we
+        // haven't received a definitive backend error or completion. (I7)
+        setStreamError((prev) => prev ?? { kind: "disconnect" });
       },
     });
 
     return cleanup;
-  }, [runId, onComplete]);
+  }, [runId, onComplete, onActive]);
 
   const completedCount = progress?.completed ?? results.length;
   const totalCount = progress?.total ?? 0;
@@ -172,17 +196,31 @@ export function LiveResultsStream({
         </Box>
       </Box>
 
-      {error && (
+      {streamError && (
         <Box
-          bg="red.900/20"
+          bg={streamError.kind === "backend" ? "red.900/20" : "yellow.900/20"}
           border="1px solid"
-          borderColor="red.500/30"
+          borderColor={
+            streamError.kind === "backend" ? "red.500/30" : "yellow.500/30"
+          }
           borderRadius="md"
           p={3}
           mb={4}
         >
-          <Text color="red.400" fontSize="sm">
-            {error}
+          <Text
+            color={streamError.kind === "backend" ? "red.400" : "yellow.400"}
+            fontSize="sm"
+            fontWeight="medium"
+            mb={1}
+          >
+            {streamError.kind === "backend"
+              ? "Backend error"
+              : "Connection lost"}
+          </Text>
+          <Text fontSize="xs" color="fg.muted">
+            {streamError.kind === "backend"
+              ? streamError.message
+              : "Reconnecting — any completed results above are final; remaining prompts may not appear."}
           </Text>
         </Box>
       )}

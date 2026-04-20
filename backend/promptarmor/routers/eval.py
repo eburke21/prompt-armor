@@ -16,11 +16,12 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from sse_starlette.sse import EventSourceResponse
 
 from promptarmor.config import settings
 from promptarmor.database import get_db
+from promptarmor.middleware.client_ip import get_client_ip
 from promptarmor.middleware.rate_limit import (
     RateLimitExceeded,
     check_rate_limits,
@@ -69,6 +70,78 @@ _comparison_complete_events: dict[str, asyncio.Event] = {}
 # Maps comparison_id → event log (for late-joining)
 _comparison_event_logs: dict[str, list[RunEvent]] = {}
 
+# Grace period before purging in-memory SSE state after a run finishes.
+# Lets late-joining / reconnecting clients replay the event log from memory.
+# After expiry, the stream endpoints fall back to synthesizing terminal events
+# from the DB so clients never get a silent empty stream.
+_STATE_RETENTION_SECONDS = 300.0
+
+
+async def _cleanup_run_state(run_id: str, delay: float = _STATE_RETENTION_SECONDS) -> None:
+    """Evict in-memory SSE state for `run_id` after a grace period."""
+    try:
+        await asyncio.sleep(delay)
+    finally:
+        _run_event_logs.pop(run_id, None)
+        _run_complete_events.pop(run_id, None)
+        _run_queues.pop(run_id, None)
+
+
+async def _cleanup_comparison_state(
+    comparison_id: str,
+    run_ids: list[str],
+    delay: float = _STATE_RETENTION_SECONDS,
+) -> None:
+    """Evict comparison-level + per-run SSE state after a grace period."""
+    try:
+        await asyncio.sleep(delay)
+    finally:
+        _comparison_runs.pop(comparison_id, None)
+        _comparison_queues.pop(comparison_id, None)
+        _comparison_complete_events.pop(comparison_id, None)
+        _comparison_event_logs.pop(comparison_id, None)
+        for rid in run_ids:
+            _run_event_logs.pop(rid, None)
+            _run_complete_events.pop(rid, None)
+            _run_queues.pop(rid, None)
+
+
+def _schedule_cleanup(coro: Any) -> None:
+    """Run a cleanup coroutine as a tracked background task (GC-safe)."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+async def _synthesize_terminal_event_from_db(run_id: str) -> RunEvent | None:
+    """Build a synthetic SSE event from the DB for a run whose in-memory state
+    has been evicted. Returns None if the run is still in a non-terminal state
+    (which would indicate the server restarted mid-run — C3 handled separately
+    by the `lifespan` reconciliation that marks such rows 'failed')."""
+    async with get_db() as db:
+        cursor = await db.execute(
+            "SELECT status, summary_stats FROM eval_runs WHERE id = ?",
+            (run_id,),
+        )
+        row = await cursor.fetchone()
+    if not row:
+        return None
+    status = row["status"]
+    if status in ("completed", "partial") and row["summary_stats"]:
+        return RunEvent(
+            event="complete",
+            data={
+                "scorecard": json.loads(row["summary_stats"]),
+                "aborted": status == "partial",
+            },
+        )
+    if status == "failed":
+        return RunEvent(
+            event="error",
+            data={"message": "Run failed before completion"},
+        )
+    return None
+
 
 # ---------------------------------------------------------------------------
 # POST /api/v1/eval/run — Start a new evaluation run
@@ -80,7 +153,7 @@ async def start_eval_run(body: EvalRunCreate, request: Request) -> EvalRunRespon
     """Create a new evaluation run and kick off processing."""
 
     # --- Rate limiting ---
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_client_ip(request)
     try:
         check_rate_limits(client_ip)
     except RateLimitExceeded as exc:
@@ -178,6 +251,8 @@ async def _run_eval_background(
         queue = _run_queues.get(run_id)
         if queue:
             await queue.put(None)
+        # Schedule eviction of in-memory state after a grace period (C2)
+        _schedule_cleanup(_cleanup_run_state(run_id))
 
 
 # ---------------------------------------------------------------------------
@@ -212,12 +287,15 @@ async def stream_eval_run(run_id: str, request: Request) -> EventSourceResponse:
         if complete_event and complete_event.is_set():
             return
 
-        # Stream live events from the queue
+        # In-memory state may have been evicted (post grace-period) or never
+        # existed on this worker (post server restart). Synthesize a terminal
+        # event from the DB so clients aren't left with an empty stream. (C3)
         queue = _run_queues.get(run_id)
-        if not queue:
+        if queue is None:
+            synthesized = await _synthesize_terminal_event_from_db(run_id)
+            if synthesized is not None:
+                yield {"event": synthesized.event, "data": synthesized.to_sse()}
             return
-
-        event_index = 0
 
         while True:
             if await request.is_disconnected():
@@ -234,7 +312,6 @@ async def stream_eval_run(run_id: str, request: Request) -> EventSourceResponse:
                 # Sentinel — run finished
                 return
 
-            event_index += 1
             yield {"event": raw.event, "data": raw.to_sse()}
 
     return EventSourceResponse(event_generator())
@@ -286,8 +363,8 @@ async def get_eval_run(run_id: str) -> dict[str, Any]:
 @router.get("/run/{run_id}/results")
 async def get_eval_results(
     run_id: str,
-    limit: int = 20,
-    offset: int = 0,
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
     """Get paginated individual results for a run."""
     async with get_db() as db:
@@ -359,7 +436,7 @@ async def start_comparison(
     """Start a comparison eval: same attack set, 2-3 different defense configs."""
 
     # --- Rate limiting ---
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_client_ip(request)
     try:
         check_rate_limits(client_ip)
     except RateLimitExceeded as exc:
@@ -554,6 +631,9 @@ async def _run_comparison_background(
     if comp_complete:
         comp_complete.set()
 
+    # Schedule eviction of in-memory comparison + per-run state (C2)
+    _schedule_cleanup(_cleanup_comparison_state(comparison_id, run_ids))
+
 
 # ---------------------------------------------------------------------------
 # GET /api/v1/eval/compare/{id}/stream — Comparison SSE stream
@@ -565,7 +645,15 @@ async def stream_comparison(
     comparison_id: str, request: Request
 ) -> EventSourceResponse:
     """SSE stream for a comparison eval, interleaving results from all configs."""
-    if comparison_id not in _comparison_runs:
+    # Verify the comparison exists in the DB (in-memory state may have been
+    # evicted post-completion, so we can't rely on _comparison_runs for 404).
+    async with get_db() as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) as cnt FROM eval_runs WHERE comparison_id = ?",
+            (comparison_id,),
+        )
+        row = await cursor.fetchone()
+    if not row or row["cnt"] == 0:
         raise HTTPException(status_code=404, detail="Comparison not found")
 
     async def event_generator() -> AsyncGenerator[dict[str, str], None]:
@@ -581,9 +669,31 @@ async def stream_comparison(
         if comp_complete and comp_complete.is_set():
             return
 
-        # Stream live events
+        # In-memory state evicted or never existed — synthesize an all_complete
+        # event from the DB if all runs in the comparison are terminal. (C3)
         queue = _comparison_queues.get(comparison_id)
-        if not queue:
+        if queue is None:
+            async with get_db() as db:
+                cur = await db.execute(
+                    """
+                    SELECT id, status, summary_stats
+                    FROM eval_runs WHERE comparison_id = ?
+                    ORDER BY created_at
+                    """,
+                    (comparison_id,),
+                )
+                rows = await cur.fetchall()
+            scorecards = [
+                json.loads(r["summary_stats"]) if r["summary_stats"] else {}
+                for r in rows
+            ]
+            yield {
+                "event": "all_complete",
+                "data": json.dumps({
+                    "comparison_id": comparison_id,
+                    "scorecards": scorecards,
+                }),
+            }
             return
 
         while True:
@@ -643,7 +753,7 @@ async def get_comparison(comparison_id: str) -> dict[str, Any]:
             run_data["summary_stats"] = json.loads(row["summary_stats"])
         else:
             all_complete = False
-        if row["status"] != "completed":
+        if row["status"] not in ("completed", "partial"):
             all_complete = False
         runs.append(run_data)
 
