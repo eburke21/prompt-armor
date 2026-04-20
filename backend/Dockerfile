@@ -6,10 +6,11 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Copy dependency files first for better layer caching
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
 
-# Install dependencies (no dev deps in production)
-RUN uv sync --no-dev --no-install-project
+# Install dependencies (no dev deps in production, frozen to uv.lock so
+# runtime never hits the network to re-resolve)
+RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy application code
 COPY promptarmor/ promptarmor/

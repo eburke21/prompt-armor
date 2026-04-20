@@ -17,7 +17,7 @@ ENSURE_DB_TIMEOUT_SECONDS="${ENSURE_DB_TIMEOUT_SECONDS:-180}"
 
 echo "[start.sh] Checking database state (timeout ${ENSURE_DB_TIMEOUT_SECONDS}s)..."
 timeout --kill-after=10 "${ENSURE_DB_TIMEOUT_SECONDS}" \
-    uv run python -m promptarmor.ensure_db
+    .venv/bin/python -m promptarmor.ensure_db
 ensure_db_status=$?
 
 case "$ensure_db_status" in
@@ -33,6 +33,6 @@ case "$ensure_db_status" in
 esac
 
 echo "[start.sh] Starting uvicorn on port ${PORT:-8000}..."
-exec uv run uvicorn promptarmor.main:app \
+exec .venv/bin/uvicorn promptarmor.main:app \
     --host 0.0.0.0 \
     --port "${PORT:-8000}"
