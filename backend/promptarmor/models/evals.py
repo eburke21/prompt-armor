@@ -85,6 +85,14 @@ class Scorecard(BaseModel):
     eval_run_id: str
     total_attacks: int
     total_benign: int
+    # Attacks where the injection classifier could not decide and no defense
+    # layer fired — excluded from the block-rate denominator. Default 0 so
+    # scorecards stored before this field was added still deserialize.
+    ambiguous_attacks: int = 0
+    # Attacks whose per-prompt pipeline raised an exception (network failure,
+    # classifier crash, etc). Counted separately from conclusive results so
+    # the headline block rate isn't skewed by infra flakiness.
+    failed_attacks: int = 0
     attack_block_rate: float
     false_positive_rate: float
     by_technique: dict[str, TechniqueScore] = Field(default_factory=dict)

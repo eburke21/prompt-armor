@@ -21,6 +21,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from promptarmor.config import settings
 from promptarmor.database import get_db
+from promptarmor.middleware.client_ip import get_client_ip
 from promptarmor.middleware.rate_limit import (
     RateLimitExceeded,
     check_rate_limits,
@@ -126,10 +127,13 @@ async def _synthesize_terminal_event_from_db(run_id: str) -> RunEvent | None:
     if not row:
         return None
     status = row["status"]
-    if status == "completed" and row["summary_stats"]:
+    if status in ("completed", "partial") and row["summary_stats"]:
         return RunEvent(
             event="complete",
-            data={"scorecard": json.loads(row["summary_stats"])},
+            data={
+                "scorecard": json.loads(row["summary_stats"]),
+                "aborted": status == "partial",
+            },
         )
     if status == "failed":
         return RunEvent(
@@ -149,7 +153,7 @@ async def start_eval_run(body: EvalRunCreate, request: Request) -> EvalRunRespon
     """Create a new evaluation run and kick off processing."""
 
     # --- Rate limiting ---
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_client_ip(request)
     try:
         check_rate_limits(client_ip)
     except RateLimitExceeded as exc:
@@ -432,7 +436,7 @@ async def start_comparison(
     """Start a comparison eval: same attack set, 2-3 different defense configs."""
 
     # --- Rate limiting ---
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_client_ip(request)
     try:
         check_rate_limits(client_ip)
     except RateLimitExceeded as exc:
@@ -749,7 +753,7 @@ async def get_comparison(comparison_id: str) -> dict[str, Any]:
             run_data["summary_stats"] = json.loads(row["summary_stats"])
         else:
             all_complete = False
-        if row["status"] != "completed":
+        if row["status"] not in ("completed", "partial"):
             all_complete = False
         runs.append(run_data)
 

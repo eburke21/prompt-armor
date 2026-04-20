@@ -195,7 +195,7 @@ async def generate_report(body: ReportGenerateRequest) -> ReportGenerateResponse
             row = await cursor.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-            if row["status"] != "completed":
+            if row["status"] not in ("completed", "partial"):
                 raise HTTPException(
                     status_code=400,
                     detail=f"Run {run_id} is not completed (status: {row['status']})",

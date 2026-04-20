@@ -24,36 +24,28 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { Link as RouterLink, useParams } from "react-router-dom";
 
-import { getEvalResults, getEvalRun } from "../api";
+import { getEvalResults } from "../api";
 import type { EvalResultItem, Scorecard } from "../api/types";
 import { LiveResultsStream } from "../components/LiveResultsStream";
 import { ScorecardView } from "../components/ScorecardView";
+import { useEvalRun } from "../hooks/useEvalRun";
 
 export function RunResults() {
   const { runId } = useParams<{ runId: string }>();
   const [liveScorecard, setLiveScorecard] = useState<Scorecard | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [streamActive, setStreamActive] = useState(false);
 
-  // Fetch run metadata
-  const {
-    data: run,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery({
-    queryKey: ["eval-run", runId],
-    queryFn: () => getEvalRun(runId!),
-    enabled: !!runId,
-    // Poll every 3s while running to get updated status
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status === "running" || status === "pending" ? 3000 : false;
-    },
-  });
+  // Poll run metadata until SSE takes over (I9: stop polling once stream connects).
+  const { run, isLoading, error, refetch, markStreamActive, applyScorecard } =
+    useEvalRun(runId, streamActive);
 
   // Fetch detailed results (only when scorecard is visible and details toggled)
   const scorecard = liveScorecard ?? run?.summary_stats ?? null;
-  const isComplete = run?.status === "completed" || liveScorecard != null;
+  const isComplete =
+    run?.status === "completed" ||
+    run?.status === "partial" ||
+    liveScorecard != null;
 
   const { data: detailedResults } = useQuery({
     queryKey: ["eval-results", runId],
@@ -61,9 +53,18 @@ export function RunResults() {
     enabled: !!runId && isComplete && showDetails,
   });
 
-  const handleStreamComplete = useCallback((sc: Scorecard) => {
-    setLiveScorecard(sc);
-  }, []);
+  const handleStreamActive = useCallback(() => {
+    setStreamActive(true);
+    markStreamActive();
+  }, [markStreamActive]);
+
+  const handleStreamComplete = useCallback(
+    (sc: Scorecard) => {
+      setLiveScorecard(sc);
+      applyScorecard(sc);
+    },
+    [applyScorecard],
+  );
 
   if (!runId) {
     return (
@@ -140,6 +141,7 @@ export function RunResults() {
         </Text>
         <LiveResultsStream
           runId={runId}
+          onActive={handleStreamActive}
           onComplete={handleStreamComplete}
         />
       </Box>

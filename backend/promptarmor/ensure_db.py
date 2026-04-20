@@ -1,12 +1,18 @@
 """Startup check: ensure the database is populated.
 
-Runs before uvicorn starts. If the attack_prompts table is empty (or the DB
-file doesn't exist), triggers the ingestion pipeline with safe defaults.
-Otherwise no-op and exits quickly so the server can start.
+Runs before uvicorn starts. If the attack_prompts table is missing, empty,
+or only partially populated (e.g. an earlier ingestion was interrupted after
+inserting prompts but before classifying techniques), triggers the ingestion
+pipeline with safe defaults.
 
 Failure mode: logs the exception and exits 0. The taxonomy endpoint handles
 an empty DB gracefully (returns zeros, not 500), so serving a visibly-empty
 app is more debuggable than crashing the container with no logs.
+
+Boot-time ingestion can be disabled in production by setting
+`DISABLE_BOOT_INGEST=true` — in that case the server starts with whatever
+data the mounted volume provides and logs a warning if that data is missing
+or incomplete.
 """
 
 import argparse
@@ -18,21 +24,35 @@ from promptarmor.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Minimum row count in `attack_prompts` we consider a valid populated DB.
+# A real ingestion produces ~40k+ rows; anything below this likely indicates
+# that a prior ingest was interrupted or a fixture was hand-seeded.
+_MIN_ATTACK_PROMPTS = 100
+
 
 def _has_data() -> bool:
-    """Return True if attack_prompts has at least one row.
+    """Return True if the DB looks healthy and ready to serve.
 
     Returns False if:
     - The DB file doesn't exist yet (fresh volume)
-    - The attack_prompts table doesn't exist yet (schema uninitialized)
-    - The table exists but is empty (interrupted previous ingestion)
+    - The required tables don't exist yet (schema uninitialized)
+    - attack_prompts has fewer than _MIN_ATTACK_PROMPTS rows (partial ingest)
+    - prompt_techniques is empty (ingestion crashed after inserting prompts
+      but before classifying techniques — the taxonomy page would be broken)
     """
     if not settings.db_path.exists():
         return False
     try:
         with sqlite3.connect(str(settings.db_path)) as conn:
-            count = conn.execute("SELECT COUNT(*) FROM attack_prompts").fetchone()[0]
-            return bool(count > 0)
+            attack_count = conn.execute(
+                "SELECT COUNT(*) FROM attack_prompts"
+            ).fetchone()[0]
+            if attack_count < _MIN_ATTACK_PROMPTS:
+                return False
+            technique_count = conn.execute(
+                "SELECT COUNT(*) FROM prompt_techniques"
+            ).fetchone()[0]
+            return bool(technique_count > 0)
     except sqlite3.OperationalError:
         return False
 
@@ -60,7 +80,15 @@ def main() -> None:
         logger.info("Database already populated — skipping ingestion.")
         return
 
-    logger.warning("Database is empty — running ingestion pipeline (~3 min)...")
+    if settings.disable_boot_ingest:
+        logger.warning(
+            "Database is empty or incomplete AND DISABLE_BOOT_INGEST is set — "
+            "server will start with a degraded dataset. "
+            "Mount a pre-populated volume or unset the flag to re-enable boot ingest."
+        )
+        return
+
+    logger.warning("Database is empty or incomplete — running ingestion pipeline (~3 min)...")
     try:
         asyncio.run(_run_ingestion())
         logger.info("Ingestion complete.")

@@ -13,7 +13,7 @@ import {
   Text,
   Textarea,
 } from "@chakra-ui/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getSystemPrompts, getTaxonomy, startEvalRun } from "../api";
@@ -119,6 +119,7 @@ const PRESETS: Preset[] = [
 
 export function Sandbox() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   // --- Form state ---
   const [systemPrompt, setSystemPrompt] = useState("");
@@ -229,6 +230,8 @@ export function Sandbox() {
 
     try {
       const result = await startEvalRun(config);
+      // Invalidate cached run lists so /sandbox shows fresh state on return (I16).
+      queryClient.invalidateQueries({ queryKey: ["eval-run", result.eval_run_id] });
       navigate(`/sandbox/${result.eval_run_id}`);
     } catch (err) {
       setError(String(err));
@@ -248,6 +251,7 @@ export function Sandbox() {
     includeBenign,
     benignRatio,
     navigate,
+    queryClient,
   ]);
 
   const loadPreset = useCallback((preset: Preset) => {
@@ -473,6 +477,22 @@ export function Sandbox() {
               </Flex>
               {secretEnabled && (
                 <Box pl={6}>
+                  <Box
+                    bg="yellow.900/20"
+                    border="1px solid"
+                    borderColor="yellow.500/30"
+                    borderRadius="md"
+                    p={2}
+                    mb={2}
+                  >
+                    <Text fontSize="xs" color="yellow.400" fontWeight="medium">
+                      Use placeholder secrets only
+                    </Text>
+                    <Text fontSize="xs" color="fg.muted">
+                      Defense configurations are stored with the eval run for
+                      reproducibility — don't paste real production secrets.
+                    </Text>
+                  </Box>
                   <Flex gap={2} wrap="wrap" mb={2}>
                     {secrets.map((s) => (
                       <Badge

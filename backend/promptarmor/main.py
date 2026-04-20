@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("Starting PromptArmor backend...")
+    logger.info("CORS origins: %s", settings.cors_origin_list)
+    if settings.trust_forwarded_for:
+        logger.info("Trusting X-Forwarded-For for client IP (proxy mode).")
     await init_db()
 
     # Reconcile runs orphaned by a prior process crash/restart. Without this,

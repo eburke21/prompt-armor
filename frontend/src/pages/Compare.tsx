@@ -19,7 +19,7 @@ import {
   Slider,
   Text,
 } from "@chakra-ui/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getTaxonomy, startComparison } from "../api";
@@ -96,6 +96,7 @@ const ALL_TECHNIQUES = Object.keys(TECHNIQUE_INFO).filter(
 type ComparePhase = "config" | "running" | "complete";
 
 export function Compare() {
+  const queryClient = useQueryClient();
   // --- Config columns (2-3) ---
   const [configCount, setConfigCount] = useState(2);
   const [configs, setConfigs] = useState<(DefenseConfig | null)[]>([
@@ -199,6 +200,11 @@ export function Compare() {
         attack_set: attackSet,
       });
 
+      // Invalidate caches for each new run the comparison created (I16).
+      for (const rid of result.eval_run_ids) {
+        queryClient.invalidateQueries({ queryKey: ["eval-run", rid] });
+      }
+
       setTotalPrompts(result.total_prompts * validConfigs.length);
       setCompletedPrompts(0);
       setScorecards([]);
@@ -241,6 +247,7 @@ export function Compare() {
     promptCount,
     includeBenign,
     benignRatio,
+    queryClient,
   ]);
 
   // Cleanup SSE on unmount
