@@ -13,9 +13,13 @@ router = APIRouter(prefix="/api/v1", tags=["taxonomy"])
 async def get_taxonomy() -> TaxonomyResponse:
     """Return the full attack technique taxonomy with counts and distributions."""
     async with get_db() as db:
-        # Total counts
+        # Total counts — COALESCE handles empty table (SUM returns NULL on 0 rows)
         row = await (await db.execute(
-            "SELECT COUNT(*), SUM(is_injection), SUM(NOT is_injection) FROM attack_prompts"
+            """SELECT
+                COUNT(*),
+                COALESCE(SUM(is_injection), 0),
+                COALESCE(SUM(NOT is_injection), 0)
+               FROM attack_prompts"""
         )).fetchone()
         assert row is not None
         total_prompts, total_injections, total_benign = int(row[0]), int(row[1]), int(row[2])
