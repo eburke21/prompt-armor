@@ -17,6 +17,21 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("Starting PromptArmor backend...")
     await init_db()
+
+    # Reconcile runs orphaned by a prior process crash/restart. Without this,
+    # their rows stay 'pending'/'running' forever and their SSE streams hang.
+    async with get_db() as db:
+        cursor = await db.execute(
+            "UPDATE eval_runs SET status = 'failed' "
+            "WHERE status IN ('pending', 'running')"
+        )
+        await db.commit()
+        if cursor.rowcount:
+            logger.warning(
+                "Marked %d orphaned run(s) as 'failed' on startup.",
+                cursor.rowcount,
+            )
+
     yield
     logger.info("Shutting down PromptArmor backend.")
 

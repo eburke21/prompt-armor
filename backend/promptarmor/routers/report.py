@@ -247,10 +247,10 @@ async def generate_report(body: ReportGenerateRequest) -> ReportGenerateResponse
     user_prompt = _build_report_prompt(runs, failures)
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
         model = "claude-sonnet-4-20250514"
 
-        message = client.messages.create(
+        message = await client.messages.create(
             model=model,
             max_tokens=4096,
             system=REPORT_SYSTEM_PROMPT,
