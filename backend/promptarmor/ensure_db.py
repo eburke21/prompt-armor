@@ -24,21 +24,19 @@ from promptarmor.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Minimum row count in `attack_prompts` we consider a valid populated DB.
-# A real ingestion produces ~40k+ rows; anything below this likely indicates
-# that a prior ingest was interrupted or a fixture was hand-seeded.
-_MIN_ATTACK_PROMPTS = 100
-
-
 def _has_data() -> bool:
     """Return True if the DB looks healthy and ready to serve.
 
     Returns False if:
     - The DB file doesn't exist yet (fresh volume)
     - The required tables don't exist yet (schema uninitialized)
-    - attack_prompts has fewer than _MIN_ATTACK_PROMPTS rows (partial ingest)
+    - attack_prompts is empty
     - prompt_techniques is empty (ingestion crashed after inserting prompts
       but before classifying techniques — the taxonomy page would be broken)
+
+    Intentionally permissive on row counts: on a memory-constrained prod
+    container, re-triggering ingestion can OOM-kill the whole process. We'd
+    rather serve a slightly-small DB than restart-loop the container.
     """
     if not settings.db_path.exists():
         return False
@@ -47,7 +45,7 @@ def _has_data() -> bool:
             attack_count = conn.execute(
                 "SELECT COUNT(*) FROM attack_prompts"
             ).fetchone()[0]
-            if attack_count < _MIN_ATTACK_PROMPTS:
+            if attack_count == 0:
                 return False
             technique_count = conn.execute(
                 "SELECT COUNT(*) FROM prompt_techniques"
